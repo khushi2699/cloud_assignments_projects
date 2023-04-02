@@ -1,0 +1,52 @@
+{
+  "StartAt": "CheckMessageType",
+  "States": {
+    "CheckMessageType": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.type",
+          "StringEquals": "CONNECT",
+          "Next": "SendToConnectQueue"
+        },
+        {
+          "Variable": "$.type",
+          "StringEquals": "SUBSCRIBE",
+          "Next": "SendToSubscribeQueue"
+        },
+        {
+          "Variable": "$.type",
+          "StringEquals": "PUBLISH",
+          "Next": "SendToPublishQueue"
+        }
+      ]
+    },
+    "SendToConnectQueue": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage",
+      "Parameters": {
+        "QueueUrl": "https://sqs.us-east-1.amazonaws.com/945919196866/Contect_Queue",
+        "MessageBody.$": "$"
+      },
+      "End": true
+    },
+    "SendToSubscribeQueue": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage",
+      "Parameters": {
+        "QueueUrl": "https://sqs.us-east-1.amazonaws.com/945919196866/Subscribe_Queue",
+        "MessageBody.$": "$"
+      },
+      "End": true
+    },
+    "SendToPublishQueue": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage",
+      "Parameters": {
+        "QueueUrl": "https://sqs.us-east-1.amazonaws.com/945919196866/Publish_Queue",
+        "MessageBody.$": "$"
+      },
+      "End": true
+    }
+  }
+}
