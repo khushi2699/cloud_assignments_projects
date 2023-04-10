@@ -7,7 +7,6 @@ import axios from 'axios';
 
 const { Content } = Layout;
 const MyPosts = () => {
-    const navigate = useNavigate();
 
     const [myPosts, setMyPosts] = useState([]);
     const loadMyEvents = async () => {
@@ -16,9 +15,9 @@ const MyPosts = () => {
             const response = await axios.post(
                 "https://wz6pn6mll3.execute-api.us-east-1.amazonaws.com/Prod/myPosts", { token })
             console.log(response)
-            if (response.data.statusCode == '400') {
+            if (response.data.statusCode === 400) {
             }
-            if (response.data.statusCode == '200') {
+            if (response.data.statusCode === 200) {
                 setMyPosts(response.data.items)
             }
 
@@ -32,9 +31,9 @@ const MyPosts = () => {
             const response = await axios.post(
                 "https://wz6pn6mll3.execute-api.us-east-1.amazonaws.com/Prod/deletePost", { postID })
             console.log(response)
-            if (response.data.statusCode == '400') {
+            if (response.data.statusCode === 400) {
             }
-            if (response.data.statusCode == '200') {
+            if (response.data.statusCode === 200) {
                 loadMyEvents();
             }
 
@@ -48,9 +47,9 @@ const MyPosts = () => {
             const response = await axios.post(
                 "https://wz6pn6mll3.execute-api.us-east-1.amazonaws.com/Prod/sellPost", { postID })
             console.log(response)
-            if (response.data.statusCode == '400') {
+            if (response.data.statusCode === 400) {
             }
-            if (response.data.statusCode == '200') {
+            if (response.data.statusCode === 200) {
                 loadMyEvents();
             }
 

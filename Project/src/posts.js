@@ -4,7 +4,6 @@ import { Layout, Button, Space, notification } from 'antd';
 import './index.css';
 import axios from 'axios';
 import AWS from 'aws-sdk';
-import { ToastContainer, toast } from 'react-toastify';
 
 
 const { Content } = Layout;

@@ -103,9 +103,9 @@ const AddPost = () => {
                 "https://wz6pn6mll3.execute-api.us-east-1.amazonaws.com/Prod/getCategory", { imageUrl }
             )
             console.log(response)
-            if (response.data.statusCode == '400') {
+            if (response.data.statusCode === 400) {
             }
-            if (response.data.statusCode == '200') {
+            if (response.data.statusCode === 200) {
                 setCategory(response.data.result)
                 handleChange(response.data.result, "category")
             }
@@ -125,9 +125,9 @@ const AddPost = () => {
                 const response = await axios.post(
                     "https://wz6pn6mll3.execute-api.us-east-1.amazonaws.com/Prod/addPost", { fieldValues, imageUrl, token })
                 console.log(response)
-                if (response.data.statusCode == '400') {
+                if (response.data.statusCode ==- 400) {
                 }
-                if (response.data.statusCode == '200') {
+                if (response.data.statusCode === 200) {
                     navigate('/dashboard')
                 }
 

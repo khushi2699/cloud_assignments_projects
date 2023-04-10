@@ -58,7 +58,7 @@ const Login = () => {
                     localStorage.setItem('jwt_token', response.data.jwt_token.AuthenticationResult.AccessToken)
                     navigate('/dashboard')
                 }
-                if (response.data.statusCode == '400') {
+                if (response.data.statusCode === 400) {
                     setErrors(response.data.response)
                 }
             } catch (e) {
@@ -68,17 +68,6 @@ const Login = () => {
         };
         loginUser();
     };
-    const prefixSelector = (
-        <Form.Item name="prefix" noStyle>
-            <Select
-                style={{
-                    width: 70,
-                }}
-            >
-                <Option value="+1">+1</Option>
-            </Select>
-        </Form.Item>
-    );
 
     return (
         <Row type="flex" justify="center" align="middle" style={{ minHeight: '100vh' }}>

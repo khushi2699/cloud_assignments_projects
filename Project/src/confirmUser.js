@@ -7,7 +7,6 @@ import {
 } from 'antd';
 import { useState } from 'react';
 import {useNavigate } from 'react-router-dom';
-import UserPool from './UserPool';
 import { useLocation } from "react-router-dom";
 // import { CognitoUserPool, CognitoUserAttribute, CognitoUser } from 'amazon-cognito-identity-js';
 // import AmazonCognitoIdentity from 'amazon-cognito-identity-js';

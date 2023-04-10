@@ -7,7 +7,6 @@ import {
     Row,
     Col
 } from 'antd';
-import UserPool from './UserPool';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
@@ -56,10 +55,10 @@ const Signup = () => {
                     "https://28y7v1nsa5.execute-api.us-east-1.amazonaws.com/Prod/NewUserSignUpAPIC", values
                 )
                 console.log(response)
-                if (response.data.statusCode == '400') {
+                if (response.data.statusCode === 400) {
                     setErrors(response.data.result)
                 }
-                if (response.data.statusCode == '200') {
+                if (response.data.statusCode === 200) {
                     console.log(values?.email)
                     navigate('/verify', { state: { emailID: values?.email } })
 
