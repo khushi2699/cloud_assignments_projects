@@ -125,7 +125,7 @@ const AddPost = () => {
                 const response = await axios.post(
                     "https://wz6pn6mll3.execute-api.us-east-1.amazonaws.com/Prod/addPost", { fieldValues, imageUrl, token })
                 console.log(response)
-                if (response.data.statusCode ==- 400) {
+                if (response.data.statusCode === 400) {
                 }
                 if (response.data.statusCode === 200) {
                     navigate('/dashboard')
@@ -249,4 +249,4 @@ const AddPost = () => {
         </>
     );
 };
-export default () => <AddPost />;
+export default AddPost;

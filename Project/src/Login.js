@@ -2,15 +2,12 @@ import {
     Button,
     Form,
     Input,
-    Select,
     Row,
     Col
 } from 'antd';
 import { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-
-const { Option } = Select;
 
 const formItemLayout = {
     labelCol: {
