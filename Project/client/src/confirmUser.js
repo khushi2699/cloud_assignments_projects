@@ -1,3 +1,4 @@
+import React, { useEffect, useState } from 'react';
 import {
     Button,
     Form,
@@ -5,11 +6,9 @@ import {
     Row,
     Col
 } from 'antd';
-import { useState } from 'react';
-import {useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useLocation } from "react-router-dom";
-// import { CognitoUserPool, CognitoUserAttribute, CognitoUser } from 'amazon-cognito-identity-js';
-// import AmazonCognitoIdentity from 'amazon-cognito-identity-js';
+import AWS from 'aws-sdk';
 
 
 const formItemLayout = {
@@ -46,50 +45,75 @@ const ConfirmUser = () => {
     const emailID = useLocation().state.emailID;
     const navigate = useNavigate();
     const [errors, setErrors] = useState([]);
-    const[resendMsg, setResendMsg] = useState([]);
+    const [resendMsg, setResendMsg] = useState([]);
     const [form] = Form.useForm();
+    const [clientId, setClientId] = useState([]);
     const onFinish = (values) => {
-        console.log('Received values of form: ', values);  
+        console.log('Received values of form: ', values);
         var params = {
-            ClientId: '5i536np6ojnnf8pb9mmfj53seu',
+            ClientId: clientId,
             ConfirmationCode: values?.confirmCode,
             Username: values?.email
-          };
-          const AWS = require('aws-sdk');
-          AWS.config.update({region: 'us-east-1'});
-          const cognitoIdentityServiceProvider = new AWS.CognitoIdentityServiceProvider();
-          cognitoIdentityServiceProvider.confirmSignUp(params, function(err, data) {
+        };
+        const AWS = require('aws-sdk');
+        AWS.config.update({ region: 'us-east-1' });
+        const cognitoIdentityServiceProvider = new AWS.CognitoIdentityServiceProvider();
+        cognitoIdentityServiceProvider.confirmSignUp(params, function (err, data) {
             if (err) {
                 console.log(err, err.stack);
                 setErrors(err.message)
             } // an error occurred
             else {
-                navigate('/login') 
-            }          
-          });
+                navigate('/login')
+            }
+        });
     };
     const resendCode = () => {
         var params = {
-            ClientId: '5i536np6ojnnf8pb9mmfj53seu',
+            ClientId: clientId,
             Username: emailID
-          };
+        };
         const AWS = require('aws-sdk');
-        AWS.config.update({region: 'us-east-1'});
+        AWS.config.update({ region: 'us-east-1' });
         const cognitoIdentityServiceProvider = new AWS.CognitoIdentityServiceProvider();
-        cognitoIdentityServiceProvider.resendConfirmationCode(params, function(err, data) {
-          if (err) {
-              console.log(err, err.stack);
-              setErrors(err.message)
-          } // an error occurred
-          else {
-            setResendMsg('Successfully resend verfication code! Pls check your email!')
-          }          
-        }); 
+        cognitoIdentityServiceProvider.resendConfirmationCode(params, function (err, data) {
+            if (err) {
+                console.log(err, err.stack);
+                setErrors(err.message)
+            } // an error occurred
+            else {
+                setResendMsg('Successfully resend verfication code! Pls check your email!')
+            }
+        });
     };
 
     const initialValues = {
         email: emailID
-      };
+    };
+
+    const callSM = async () => {
+        const secretsManager = new AWS.SecretsManager({
+            accessKeyId: process.env.REACT_APP_ACCESS_KEY_ID,
+            secretAccessKey: process.env.REACT_APP_SECRET_ACCESS_KEY,
+            sessionToken: process.env.REACT_APP_SESSION_TOKEN,
+            region: process.env.REACT_APP_REGION
+        });
+        secretsManager.getSecretValue({ SecretId: 'CloudSecret' }, function (err, data) {
+            if (err) {
+                console.log('Error retrieving secret value: ', err);
+            } else {
+                console.log('Secret value: ', data.SecretString);
+                const ans = JSON.parse(data.SecretString);
+                setClientId(ans.ClientPoolID);
+            }
+        });
+    };
+
+    useEffect(() => {
+        callSM();
+
+    }, [])
+
     return (
         <Row type="flex" justify="center" align="middle" style={{ minHeight: '100vh' }}>
             <Col>

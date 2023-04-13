@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     Button,
     Form,
@@ -9,6 +9,7 @@ import {
 } from 'antd';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import AWS from 'aws-sdk';
 
 const { Option } = Select;
 
@@ -46,13 +47,14 @@ const tailFormItemLayout = {
 const Signup = () => {
     const navigate = useNavigate();
     const [errors, setErrors] = useState([]);
+    const [api, setAPI] = useState([]);
     const [form] = Form.useForm();
     const onFinish = (values) => {
         console.log('Received values of form: ', values);
         const saveUser = async () => {
             try {
                 const response = await axios.post(
-                    "https://28y7v1nsa5.execute-api.us-east-1.amazonaws.com/Prod/NewUserSignUpAPIC", values
+                    "https://"+api+".execute-api.us-east-1.amazonaws.com/Prod/SignUpProject", values
                 )
                 console.log(response)
                 if (response.data.statusCode === 400) {
@@ -84,11 +86,32 @@ const Signup = () => {
         </Form.Item>
     );
 
+    const callSM = async () => {    
+        const secretsManager = new AWS.SecretsManager({
+            accessKeyId: process.env.REACT_APP_ACCESS_KEY_ID,
+            secretAccessKey: process.env.REACT_APP_SECRET_ACCESS_KEY,
+            sessionToken: process.env.REACT_APP_SESSION_TOKEN,
+            region: process.env.REACT_APP_REGION
+        });
+        secretsManager.getSecretValue({ SecretId: 'CloudSecret' }, function (err, data) {
+            if (err) {
+                console.log('Error retrieving secret value: ', err);
+            } else {
+                console.log('Secret value: ', data.SecretString);
+                const ans = JSON.parse(data.SecretString);
+                setAPI(ans.Deployment)
+            }
+        });
+    };
+    useEffect(() => {
+        callSM();
+    }, [])
+
     return (
         <Row type="flex" justify="center" align="middle" style={{ minHeight: '100vh' }}>
             <Col>
                 <div>
-                    <h2> Sign Up </h2>
+                <h2 className = "sign-login-style"> Sign up </h2>
                     {errors && <h2> {errors} </h2>}
                     <Form
                         {...formItemLayout}
@@ -221,6 +244,11 @@ const Signup = () => {
                                 }}
                             />
                         </Form.Item>
+                        <p role = "presentation" className = "text-link " style={{ textAlign: 'right' }} onClick = {() => navigate('/login')}>
+                            <Form.Item>
+                                Already a user? Login here!!!
+                            </Form.Item>
+                        </p>
 
                         <Form.Item {...tailFormItemLayout}>
                             <Button type="primary" htmlType="submit">

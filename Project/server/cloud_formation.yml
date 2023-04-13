@@ -1,0 +1,1197 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  DynamoTable1:
+    Description: Name of Table 1
+    Type: String
+    Default: user_details
+  DynamoTable2:
+    Description: Name of Table 2
+    Type: String
+    Default: post_details
+  BucketName:
+    Description: Name of Bucket
+    Type: String
+    Default: cloudproject2023
+Resources:
+  LambdaFunction1:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          dynamodb = boto3.resource('dynamodb') # get the DynamoDB resource
+          table = dynamodb.Table('user_details') 
+          client = boto3.client('cognito-idp')
+          sm = boto3.client('secretsmanager')
+
+          def lambda_handler(event, context):
+              
+              secret_name = "CloudSecret"
+              response = sm.get_secret_value(SecretId=secret_name)
+              secret_value = json.loads(response['SecretString'])
+              clientID = secret_value['ClientPoolID']
+
+              bannerID = event["bannerID"]
+              firstName = event["firstName"]
+              lastName = event["lastName"]
+              password = event["password"]
+              email = event["email"]
+              phoneNumber = event["prefix"]+event["phone"]
+              
+              input = {
+                  "BannerId": bannerID,
+                  "firstName": firstName,
+                  "lastName": lastName,
+                  "password": password,
+                  "email": email,
+                  "phoneNumber": phoneNumber
+              }
+              banner_response = table.query(
+                  KeyConditionExpression='BannerId = :bannerID',
+                  ExpressionAttributeValues={
+                      ':bannerID': bannerID
+                  }
+              )
+              email_response = table.query(
+                  IndexName='email-index',
+                  KeyConditionExpression='email = :email',
+                  ExpressionAttributeValues={
+                      ':email': email
+                  }
+              )
+              
+              bannerId_exist = banner_response['ScannedCount']
+              email_exist = email_response['ScannedCount']
+              
+
+              if bannerId_exist == 0 and email_exist == 0:
+                  response_cognito = client.sign_up(
+                      ClientId=clientID,
+                      Username=email,
+                      Password=password,
+                  )
+                  response_dynamo = table.put_item(Item=input)    # Add item to table
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                        "Access-Control-Allow-Origin": "*", 
+                        "Access-Control-Allow-Credentials": "true",
+                        "Access-Control-Allow-Headers": "Content-Type",
+                        "Access-Control-Allow-Methods": "OPTIONS,POST,GET"
+                      },
+                      'result_cognito': response_cognito,
+                      'result_dynamo': response_dynamo
+                  }
+              else:
+                  if bannerId_exist != 0: 
+                      return {
+                          'statusCode': 400,
+                          'headers': {
+                            "Access-Control-Allow-Origin": "*", 
+                            "Access-Control-Allow-Credentials": "true",
+                          },            
+                          'result': 'Banner ID Already Exist. It must be unique',
+                      }
+                  if email_exist != 0:
+                      return {
+                          'statusCode': 400,
+                          'headers': {
+                            "Access-Control-Allow-Origin": "*", 
+                            "Access-Control-Allow-Credentials": "true",
+                          },            
+                          'result': 'Email Address Already Exist. It must be unique',
+
+                      }
+      FunctionName: SignUpProject
+      Role: arn:aws:iam::945919196866:role/LabRole #Your own Lab Role
+      Handler: index.lambda_handler
+      Runtime: python3.8
+  LambdaFunction2:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+            import boto3
+            import json
+            dynamodb = boto3.resource('dynamodb') # get the DynamoDB resource
+            table = dynamodb.Table('user_details')
+            client = boto3.client('cognito-idp')
+            sm = boto3.client('secretsmanager')
+            def lambda_handler(event, context):
+                
+                secret_name = "CloudSecret"
+                response = sm.get_secret_value(SecretId=secret_name)
+                secret_value = json.loads(response['SecretString'])
+                clientID = secret_value['ClientPoolID']
+                print(clientID)
+                password = event["password"]
+                email = event["email"]
+
+                try: 
+                    response = client.initiate_auth(
+                    AuthFlow='USER_PASSWORD_AUTH',
+                    AuthParameters={
+                        'USERNAME': email,
+                        'PASSWORD': password,
+                    },
+                    ClientId=clientID,
+                    )
+
+                    if response:
+                        print(response['AuthenticationResult']['AccessToken'])
+                        return {
+                            'statusCode': 200,
+                            'headers': {
+                                "Access-Control-Allow-Origin": "*",
+                                "Access-Control-Allow-Credentials": "true",
+                            },
+                            'jwt_token': response
+                        }
+                except Exception as e:
+                    exception_type = e.__class__.__name__
+                    exception_message = str(e)
+                    
+                    return {
+                        'statusCode': 400,
+                        'headers': {
+                            "Access-Control-Allow-Origin": "*",
+                            "Access-Control-Allow-Credentials": "true",                
+                        },
+                        'jwt_token': 'null',
+                        'response': exception_message
+                    }
+                    
+                    
+                # response = client.get_user(
+                #     AccessToken='eyJraWQiOiJ4VjhPSVlXZnlCazJqTHBwOEN6eGw4RkJTanlaVW42dGxWSEJXY1RIN1k0PSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI5YjY5MDA4Yy1iYjAyLTRjNzYtODgyYi1hZjk4MTk2NWE4NjEiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAudXMtZWFzdC0xLmFtYXpvbmF3cy5jb21cL3VzLWVhc3QtMV9jMXlwdk1WdFciLCJjbGllbnRfaWQiOiIxaWtqZXAyM2k3ZWw4NDJhNGIyZm1yZXIzOSIsIm9yaWdpbl9qdGkiOiIyNTJiNDlhYy0wOWMyLTRmYWQtOWRjZi0wMTJiN2ViZGZjYTgiLCJldmVudF9pZCI6IjIwMWU3M2VlLTdhZmUtNDgyMS1iMTgzLTI1MzJjYWYxMDk0ZiIsInRva2VuX3VzZSI6ImFjY2VzcyIsInNjb3BlIjoiYXdzLmNvZ25pdG8uc2lnbmluLnVzZXIuYWRtaW4iLCJhdXRoX3RpbWUiOjE2ODA5MjkxNTAsImV4cCI6MTY4MDkyOTQ1MCwiaWF0IjoxNjgwOTI5MTUwLCJqdGkiOiJmMTJhYzg4NC1lNGRjLTQ2MGYtOTJmMS05NmRkM2I5MTE4NDMiLCJ1c2VybmFtZSI6IjliNjkwMDhjLWJiMDItNGM3Ni04ODJiLWFmOTgxOTY1YTg2MSJ9.xZt7auuxtTfzuzU3EY4oSn2U4EaR_zyO2kqIY8AnnZIxpnDc7HBDMdetZ9pYVa2EOkLLWADnKKQiy4_uwsE90DjWKkOLOdWVMGQz0Nql-deyAwL_5AMRNIW5SAyTpC1sjjJBR5j_Yj-SSZ3zmBG25xcXxVGIDy09dHvy4SCy-n2yEETAcSMU1i8RpfK4eC90ORXWUIObAyEhngEDIKXHylk3mtRNjJzQ7SG_zMTyMStCAu1TdJCNcswPpLmjhLwgV0z_q09lt-etIODuYqX7ZXlTj8PndvsRt8ajDbV7Oa7X_ooFlr9NOVGyF5ZEGE0eGBY0izrGD1AhgD98hBihBw'
+                # )
+
+      FunctionName: LoginProject
+      Role: arn:aws:iam::945919196866:role/LabRole #Your own Lab Role
+      Handler: index.lambda_handler
+      Runtime: python3.8
+    DependsOn:
+      - LambdaFunction1    
+  LambdaFunction3:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import uuid
+
+          dynamodb = boto3.resource('dynamodb') # get the DynamoDB resource
+          table = dynamodb.Table('counter_post')
+          table1 = dynamodb.Table('post_details')
+          client = boto3.client('cognito-idp')
+          def lambda_handler(event, context):
+
+              imageUrl = event["imageUrl"]
+              token = event["token"]
+              values = event["fieldValues"]
+                  
+              print(imageUrl)
+              print(token)
+              print(values)
+              
+              productName = values['productName']
+              price = values['price']
+              description = values['description']
+              category = values['category']
+                  
+              response = client.get_user(
+                  AccessToken=token
+              )
+                  
+              email = response['UserAttributes'][2]['Value']
+              
+              print(email)
+              
+              postID = str(uuid.uuid4())
+              print(postID)
+              
+              # count = table.scan()
+              # counter = count['Items'][0]['counter_value']
+              # counter = counter + 1
+              
+              # print(count)
+              
+              input = {
+                  "postID": postID,
+                  "ProductName": productName,
+                  "Price": price,
+                  "Description": description,
+                  "email": email,
+                  "url": imageUrl,
+                  "category": category,
+                  "issold": 'false'
+              }
+              response_dynamo = table1.put_item(Item=input)    # Add item to table
+
+              # response = table.update_item(
+              #             Key={'post_counter': 0},
+              #             UpdateExpression="set counter_value=:r",
+              #             ExpressionAttributeValues={
+              #                 ':r': counter},
+              #             ReturnValues="UPDATED_NEW")
+              return{
+                  'statusCode': '200',
+                  'imageUrl': imageUrl,
+                  'token': token,
+                  'values': values
+              }
+      FunctionName: AddPostProject
+      Role: arn:aws:iam::945919196866:role/LabRole #Your own Lab Role
+      Handler: index.lambda_handler
+      Runtime: python3.8
+    DependsOn:
+      - LambdaFunction2  
+  LambdaFunction4:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          dynamodb = boto3.resource('dynamodb') # get the DynamoDB resource
+          table = dynamodb.Table('post_details')
+          client = boto3.client('cognito-idp')
+          def lambda_handler(event, context):
+              
+              postID = event['postID']
+              
+              response = table.update_item(
+                          Key={'postID': postID},
+                          UpdateExpression="set issold=:r",
+                          ExpressionAttributeValues={
+                              ':r': 'true'},
+                          ReturnValues="UPDATED_NEW")    
+              return {
+                  'statusCode': 200,
+                  'response': response
+              }
+      FunctionName: SellPostProject
+      Role: arn:aws:iam::945919196866:role/LabRole #Your own Lab Role
+      Handler: index.lambda_handler
+      Runtime: python3.8
+    DependsOn:
+      - LambdaFunction3  
+  LambdaFunction5:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          dynamodb = boto3.resource('dynamodb') # get the DynamoDB resource
+          table = dynamodb.Table('post_details')
+          client = boto3.client('cognito-idp')
+          def lambda_handler(event, context):
+              
+              postID = event['postID']
+              
+              response = table.delete_item(Key = {
+                  'postID': postID
+              })
+              # TODO implement
+              return {
+                  'statusCode': 200,
+                  'response': response
+              }
+      FunctionName: DeletePostProject
+      Role: arn:aws:iam::945919196866:role/LabRole #Your own Lab Role
+      Handler: index.lambda_handler
+      Runtime: python3.8
+    DependsOn:
+      - LambdaFunction4 
+  LambdaFunction6:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from boto3.dynamodb.conditions import Attr
+
+          dynamodb = boto3.resource('dynamodb') # get the DynamoDB resource
+          table = dynamodb.Table('post_details')
+          client = boto3.client('cognito-idp')
+
+          def lambda_handler(event, context):
+              index_name = 'email-index'
+
+              token = event['token']
+              response = client.get_user(
+                  AccessToken=token
+              )
+              
+              
+              email = response['UserAttributes'][2]['Value']
+              response = table.scan(
+                  IndexName=index_name,
+                  FilterExpression=Attr('email').ne(email) & Attr('issold').eq('false')
+              )
+              items = response['Items']
+              # TODO implement
+              return {
+                  'statusCode': 200,
+                  'items': items,
+              }
+      FunctionName: GellAllPostsProject
+      Role: arn:aws:iam::945919196866:role/LabRole #Your own Lab Role
+      Handler: index.lambda_handler
+      Runtime: python3.8
+    DependsOn:
+      - LambdaFunction5  
+  LambdaFunction7:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from boto3.dynamodb.conditions import Attr
+
+          dynamodb = boto3.resource('dynamodb') # get the DynamoDB resource
+          table = dynamodb.Table('post_details')
+          client = boto3.client('cognito-idp')
+
+          def lambda_handler(event, context):
+              index_name = 'email-index'
+
+              token = event['token']
+              response = client.get_user(
+                  AccessToken=token
+              )
+              
+              email = response['UserAttributes'][2]['Value']
+              # response = table.query(
+              #     IndexName=index_name,
+              #     KeyConditionExpression=Key('email').eq(email)
+              # )
+              response = table.scan(
+                  IndexName=index_name,
+                  FilterExpression=Attr('email').eq(email)
+              )
+              items = response['Items']
+              # TODO implement
+              return {
+                  'statusCode': 200,
+                  'items': items,
+              }
+      FunctionName: GetMyPostsProject
+      Role: arn:aws:iam::945919196866:role/LabRole #Your own Lab Role
+      Handler: index.lambda_handler
+      Runtime: python3.8
+    DependsOn:
+      - LambdaFunction6  
+  LambdaFunction8:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          rekognition_client = boto3.client('rekognition')
+          def lambda_handler(event, context):
+              
+              s3_url = event['imageUrl']
+
+              bucket_name, object_key = s3_url.split('//')[1].split('/', 1)
+              
+              response = rekognition_client.detect_labels(Image={'S3Object': {'Bucket': 'cloudproject2023', 'Name': object_key}})
+              
+              result = response['Labels'][0]['Name']
+
+              return {
+                  'statusCode': 200,
+                  'result': result
+              }
+      FunctionName: GetCategoryProject
+      Role: arn:aws:iam::945919196866:role/LabRole #Your own Lab Role
+      Handler: index.lambda_handler
+      Runtime: python3.8
+    DependsOn:
+      - LambdaFunction7  
+  LambdaFunction9:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from boto3.dynamodb.conditions import Attr
+          import smtplib
+          from email.mime.text import MIMEText
+
+
+
+          dynamodb = boto3.resource('dynamodb') # get the DynamoDB resource
+          sns = boto3.client('sns')
+          table = dynamodb.Table('post_details')
+          table1 = dynamodb.Table('user_details')
+          client = boto3.client('cognito-idp')
+          def lambda_handler(event, context):
+              
+              token = event['token']
+              response = client.get_user(
+                  AccessToken=token
+              )
+              sendToEmail = response['UserAttributes'][2]['Value']
+              postID = event['postID']
+              print(sendToEmail)
+              print(postID)
+              
+              index_name = 'email-index'
+              
+              post_details = table.get_item(
+                      Key={"postID":postID}
+              )
+              
+              post_owner_email = post_details['Item']['email']
+              print(post_owner_email)
+              response = table1.scan(
+                  IndexName=index_name,
+                  FilterExpression=Attr('email').eq(post_owner_email)
+              )
+              
+              
+              print(response)
+              
+              # response_sns = sns.subscribe(
+              #     TopicArn = 'arn:aws:sns:us-east-1:945919196866:Notify',
+              #     Protocol = 'email',
+              #     Endpoint = sendToEmail
+              # )
+              
+              firstName = response['Items'][0]['firstName']
+              lastName = response['Items'][0]['lastName']
+              phoneNumber = response['Items'][0]['phoneNumber']
+              
+              message_body = 'Hello '+sendToEmail+', You showed interest in a post, here are the details of the post owner. Name: '+firstName+' '+lastName+' Contact Number: '+ phoneNumber
+              print(message_body)
+              
+              # response_sns_publish = sns.publish(
+              #     TopicArn = 'arn:aws:sns:us-east-1:945919196866:Notify',
+              #     Message= message
+              # )
+              
+              
+              sender = 'khshah2699@gmail.com'
+              recipient = sendToEmail
+              subject = 'New Interest Information'
+              # message = f"""\
+              # From: {sender}
+              # To: {recipient}
+              # Subject: {subject}
+              # Body:
+              # {message_body}
+              # """
+              # TODO implement
+              
+              smtp_server = 'smtp.gmail.com'
+              smtp_port = 587
+              smtp_username = 'khshah2699@gmail.com'
+              smtp_password = 'cklupnkfkmtqcdev'
+              
+              msg = MIMEText(message_body)
+
+              # Set the headers of the email
+              msg['Subject'] = subject
+              msg['From'] = sender
+              msg['To'] = recipient
+              
+              try:
+                  smtp_server = smtplib.SMTP(smtp_server, smtp_port)
+                  smtp_server.ehlo()
+                  smtp_server.starttls()
+                  smtp_server.login(smtp_username, smtp_password)
+                  smtp_server.sendmail(sender, recipient, msg.as_string())
+                  print("Email sent successfully")
+              except Exception as ex:
+                  print("Error sending email: ", str(ex))
+              finally:
+                  smtp_server.quit()
+                  
+              return {
+                  'statusCode': 200,
+                  'response': 'Email send successfully'
+              }
+      FunctionName: SendEmailProject
+      Role: arn:aws:iam::945919196866:role/LabRole #Your own Lab Role
+      Handler: index.lambda_handler
+      Runtime: python3.8
+    DependsOn:
+      - LambdaFunction8  
+  APIGatewayRestAPI:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: CloudTermProject
+    DependsOn:
+      - LambdaFunction9  
+  APIGatewayResource1:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+        - APIGatewayRestAPI
+        - RootResourceId
+      PathPart: SignUpProject
+    DependsOn:
+      - APIGatewayRestAPI  
+  APIGatewayResource2:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+        - APIGatewayRestAPI
+        - RootResourceId
+      PathPart: LoginProject
+    DependsOn:
+      - APIGatewayResource1  
+  APIGatewayResource3:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+        - APIGatewayRestAPI
+        - RootResourceId
+      PathPart: AddPostProject
+    DependsOn:
+      - APIGatewayResource2
+  APIGatewayResource4:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+        - APIGatewayRestAPI
+        - RootResourceId
+      PathPart: SellPostProject
+    DependsOn:
+      - APIGatewayResource3
+  APIGatewayResource5:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+        - APIGatewayRestAPI
+        - RootResourceId
+      PathPart: DeletePostProject
+    DependsOn:
+      - APIGatewayResource4 
+  APIGatewayResource6:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+        - APIGatewayRestAPI
+        - RootResourceId
+      PathPart: GellAllPostsProject
+    DependsOn:
+      - APIGatewayResource5 
+  APIGatewayResource7:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+        - APIGatewayRestAPI
+        - RootResourceId
+      PathPart: GetMyPostsProject
+    DependsOn:
+      - APIGatewayResource6 
+  APIGatewayResource8:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+        - APIGatewayRestAPI
+        - RootResourceId
+      PathPart: GetCategoryProject
+    DependsOn:
+      - APIGatewayResource7 
+  APIGatewayResource9:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+        - APIGatewayRestAPI
+        - RootResourceId
+      PathPart: SendEmailProject
+    DependsOn:
+      - APIGatewayResource8 
+  APIGatewayMethod1:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource1
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaFunction1.Arn
+    DependsOn:
+      - APIGatewayResource9 
+  APIGatewayMethod2:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource2
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaFunction2.Arn
+    DependsOn:
+      - APIGatewayMethod1 
+  APIGatewayMethod3:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource3
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaFunction3.Arn
+    DependsOn:
+      - APIGatewayMethod2 
+  APIGatewayMethod4:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource4
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaFunction4.Arn
+    DependsOn:
+      - APIGatewayMethod3
+  APIGatewayMethod5:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource5
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaFunction5.Arn
+    DependsOn:
+      - APIGatewayMethod4
+  APIGatewayMethod6:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource6
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaFunction6.Arn
+    DependsOn:
+      - APIGatewayMethod5
+  APIGatewayMethod7:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource7
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaFunction7.Arn
+    DependsOn:
+      - APIGatewayMethod6
+  APIGatewayMethod8:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource8
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaFunction8.Arn
+    DependsOn:
+      - APIGatewayMethod7
+  APIGatewayMethod9:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource9
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaFunction9.Arn
+    DependsOn:
+      - APIGatewayMethod8
+  APIGatewayDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      StageName: Prod
+    DependsOn:
+      - APIGatewayMethod9
+  APIGatewayPermission1:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunction1.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - APIGatewayDeployment 
+  APIGatewayPermission2:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunction2.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - APIGatewayPermission1 
+  APIGatewayPermission3:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunction3.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - APIGatewayPermission2
+  APIGatewayPermission4:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunction4.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - APIGatewayPermission3
+  APIGatewayPermission5:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunction5.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - APIGatewayPermission4
+  APIGatewayPermission6:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunction6.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - APIGatewayPermission5
+  APIGatewayPermission7:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunction7.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - APIGatewayPermission6
+  APIGatewayPermission8:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunction8.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - APIGatewayPermission7
+  APIGatewayPermission9:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaFunction9.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - APIGatewayPermission8
+  UserPool:
+    Type: 'AWS::Cognito::UserPool'
+    Properties:
+      UsernameConfiguration:
+        CaseSensitive: false
+      AutoVerifiedAttributes:
+        - email
+      UserPoolName: CloudProjectPool
+      UsernameAttributes: 
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+    DependsOn:
+      - APIGatewayPermission9
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      SupportedIdentityProviders:
+        - COGNITO
+      PreventUserExistenceErrors: ENABLED
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_CUSTOM_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+    DependsOn:
+      - UserPool
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: cloudb00923816
+      UserPoolId: !Ref UserPool
+    DependsOn:
+      - UserPoolClient
+  DynamoDBTable1:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName:
+        Ref: DynamoTable1
+      AttributeDefinitions:
+        - AttributeName: BannerId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: BannerId
+          KeyType: HASH     
+      GlobalSecondaryIndexes:
+        - IndexName: email-index
+          KeySchema:
+            - AttributeName: email
+              KeyType: 'HASH'
+          Projection:
+            ProjectionType: 'ALL'
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+      ProvisionedThroughput:
+        ReadCapacityUnits: '5'
+        WriteCapacityUnits: '5'
+    DependsOn:
+      - UserPoolDomain
+  DynamoDBTable2:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName:
+        Ref: DynamoTable2
+      AttributeDefinitions:
+        - AttributeName: postID
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+        - AttributeName: bannerID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: postID
+          KeyType: HASH     
+      GlobalSecondaryIndexes:
+        - IndexName: email-index
+          KeySchema:
+            - AttributeName: email
+              KeyType: 'HASH'
+          Projection:
+            ProjectionType: 'ALL'
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+        - IndexName: post-index
+          KeySchema:
+            - AttributeName: bannerID
+              KeyType: 'HASH'
+          Projection:
+            ProjectionType: 'ALL'
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5              
+      ProvisionedThroughput:
+        ReadCapacityUnits: '5'
+        WriteCapacityUnits: '5' 
+    DependsOn:
+      - DynamoDBTable1
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref BucketName
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+            AllowedOrigins:
+              - '*'
+            ExposedHeaders:
+              - ETag
+            MaxAge: '3600'
+    DependsOn:
+      - DynamoDBTable2
+  SampleBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BucketName
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - 's3:GetObject'
+            Effect: Allow
+            Sid: 'PublicReadGetObject'
+            Resource: !Join
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref BucketName
+                - /*
+            Principal: '*' 
+    DependsOn:
+      - S3Bucket 
+  MySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: CloudSecret
+      Description: My secret
+      # SecretString: !Join
+      #   - ""
+      #   - - "{\"UserPoolID\": \""
+      #     - !Ref UserPool
+      #     - "\"}"
+      SecretString: !Sub
+        - |
+          {
+            "Deployment": "${Deployment}",
+            "ClientPoolID": "${ClientPoolID}",
+            "UserPoolID": "${UserPoolID}"
+          }
+        - {
+            Deployment: !Ref APIGatewayRestAPI,
+            ClientPoolID: !Ref UserPoolClient,
+            UserPoolID: !Ref UserPool
+          }
+    DependsOn:
+      - SampleBucketPolicy
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.large
+      ImageId: ami-007855ac798b5175e
+      KeyName: "Khushi"
+      SecurityGroups:
+      - Ref: InstanceSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo apt-get update
+          sudo apt-get install git
+          git clone https://github.com/khushi2699/termassignment.git 
+          cd ..
+          cd ..
+          sudo su
+          apt install -y npm
+          cd termassignment/
+          npm i
+          npm i aws-sdk
+          npm i axios
+          npm i react-router-dom
+          npm start
+    DependsOn:
+      - MySecret
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH HTTP and HTTPS access via port 22,80,443,3000,3389
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: 0.0.0.0/0       
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0 
+       
